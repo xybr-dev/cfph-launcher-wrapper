@@ -109,33 +109,50 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### QA
 
-- [ ] Dialog appears with correct message and title (pending manual test).
-- [ ] Clicking Cancel exits the launcher immediately with no further action (pending manual test).
-- [ ] Clicking OK falls through to the next phase (currently just prints a placeholder) (pending manual test).
-- [ ] Dialog window appears in the taskbar and can be focused normally (pending manual test).
+- [x] Dialog appears with correct message and title (pending manual test).
+- [x] Clicking Cancel exits the launcher immediately with no further action (pending manual test).
+- [x] Clicking OK falls through to the next phase (currently just prints a placeholder) (pending manual test).
+- [x] Dialog window appears in the taskbar and can be focused normally (pending manual test).
 
 ---
 
-## Phase 3: Process Termination
+## Phase 3: Process Termination & Manual Exit Dialog
 
-> **Goal:** Terminate all Vanguard PIDs collected in Phase 1, then wait briefly before proceeding.
+> **Goal:** Gracefully shut down Vanguard processes via service stop (SCM) and a guided manual-exit dialog. Force-termination (`TerminateProcess`, `PostThreadMessageW`/`WM_QUIT`) was removed because it does not work on protected Vanguard processes.
 
 ### Core
 
-- Write a function `fn terminate_processes(pids: &[u32]) -> Result<(), String>` that:
-  - Calls `OpenProcess` with `PROCESS_TERMINATE` access right for each PID.
-  - Calls `TerminateProcess` with exit code `0`.
-  - Calls `CloseHandle` after each operation.
-  - Returns an error string if any handle fails to open (non-fatal — log and continue).
-- After termination, `std::thread::sleep(std::time::Duration::from_millis(1500))` to allow the kernel service to release `sgack.sys`.
-- Wire into `main` after the user confirms OK.
-- Learn: `OpenProcess`, access rights flags, error handling with `GetLastError` via `windows::core::Error::from_win32()`.
+- [x] ~~Termination via `TerminateProcess`~~ — **REMOVED.** Does not work on protected Vanguard processes (access denied).
+- [x] ~~Per-PID termination logging~~ — **REMOVED** along with the force-termination code.
+- [x] ~~`CloseHandle` after each operation~~ — **REMOVED** (`ProcessHandle` Drop guard deleted).
+- [x] ~~Non-fatal error handling for `TerminateProcess`~~ — **REMOVED.**
+- [x] ~~`std::thread::sleep(1500ms)` after termination~~ — **REMOVED** (no kernel resources to wait for after tray exit).
+- [x] Attempt graceful `vgc` service stop via SCM (`stop_service_gracefully`). — **KEPT.**
+- [x] Attempt `PostThreadMessageW(WM_QUIT)` to vgtray.exe's main thread. — **REMOVED.**
+- [x] ~~Fall back to `TerminateProcess` if graceful approaches fail~~ — **REMOVED.**
+
+### Service Detection (added post-Phase-3 investigation)
+
+- [x] Add `Win32_System_Services` feature to `Cargo.toml`. — **KEPT.**
+- [x] `stop_service_gracefully(name)` — SCM stop + poll (handles tamper-resistant, not-found). — **KEPT.**
+- [x] Wire into `main` — attempts `vgc` stop first, then `vgk` stop. — **KEPT** (flow simplified: service stop → manual-exit loop).
+- [x] Learn: `SC_HANDLE`, `OpenSCManagerW`, `OpenServiceW`, `ControlService`, `CloseServiceHandle`. — **KEPT.**
+
+### Manual Exit Dialog (replaces all force-termination code)
+
+- [x] Added `show_manual_exit_dialog()` — text-only `MessageBoxW` with `MB_OKCANCEL`. Shows 4 step-by-step tray exit instructions. No images (confirmed text-only approach).
+- [x] Added re-check loop — after user clicks OK, re-runs `find_vanguard_processes()`. Loops until Vanguard is gone or user clicks Cancel.
+- [x] Simplified `main()` flow: detect → print summary → service stop → loop (re-detect + dialog) → "── Launch ──" placeholder.
+- [x] Removed dead code: `has_termination_privilege`, `relaunch_as_admin`, `exit_vanguard_via_thread`, `ProcessHandle`, `FindWindowCtx`, `enum_window_callback`, `find_window_by_pid`.
+- [x] Removed unused Cargo features: `Win32_System_Threading`, `Win32_UI_Shell`.
 
 ### QA
 
-- Run with Vanguard active → both `vgc.exe` and `vgtray.exe` are gone from Task Manager after execution.
-- Run with Vanguard already stopped → no panic, graceful no-op.
-- Confirm the sleep actually provides enough time (test that CrossFire launches cleanly immediately after termination in Phase 4).
+- [ ] Run with Vanguard active → dialog loop guides user through manual tray exit (pending manual test).
+- [ ] Run with Vanguard already stopped → no dialog, falls through to launch placeholder (pending manual test).
+- [ ] Cancel in instruction dialog → launcher exits cleanly (pending manual test).
+- [ ] Confirm CrossFire launches cleanly after Vanguard is cleared (pending manual test in Phase 4).
+- [ ] `vgk` kernel driver remains loaded until machine restart — SCM `SERVICE_CONTROL_STOP` may unload it; if tamper-resistant, reboot is required.
 
 ---
 

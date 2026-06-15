@@ -3,10 +3,12 @@ name = "cfph-launcher"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-windows = { version = "0.58", features = [
+[dependencies.windows]
+version = "0.58"
+features = [
     "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Threading",
+    "Win32_System_Services",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
-] }
+]
