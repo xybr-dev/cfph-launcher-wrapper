@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::SystemInformation::GetTickCount64;
+
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::PCWSTR;
 
@@ -11,18 +11,19 @@ use windows::core::PCWSTR;
 
 #[link(name = "user32")]
 unsafe extern "system" {
-    fn EnableWindow(hWnd: HWND, bEnable: i32) -> i32;
     fn GetDlgCtrlID(hWnd: HWND) -> i32;
+    fn MessageBeep(uType: u32) -> i32;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────
 
 const WINDOW_W: i32 = 1160;
 const WINDOW_H: i32 = 600;
-const ID_DONE: u32 = 1001;
+const ID_SKIP: u32 = 1001;
 const ID_CANCEL: u32 = 1002;
-const TIMER_FLASH: usize = 2001;
-const FLASH_DURATION_MS: u64 = 800;
+const ID_WAITING: u32 = 1003;
+const TIMER_AUTOCHECK: usize = 2002;
+const TIMER_SHOW_SKIP: usize = 2003;
 
 // Static control styles (not directly exported by windows crate v0.61 WWaM)
 const SS_BITMAP: u32 = 0x0000000E;
@@ -33,7 +34,6 @@ const COLOR_DARK: COLORREF = COLORREF(0x001e1e1e);
 const COLOR_AMBER: COLORREF = COLORREF(0x0014b7e2);
 const COLOR_LIGHT: COLORREF = COLORREF(0x00cccccc);
 const COLOR_RED: COLORREF = COLORREF(0x004444ff);
-const COLOR_DARK_RED: COLORREF = COLORREF(0x0000008b);
 
 // ── Helper Functions ─────────────────────────────────────────────────────
 
@@ -47,25 +47,6 @@ fn hi_word(val: usize) -> u16 {
 
 fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn get_tick_ms() -> u64 {
-    unsafe { GetTickCount64() as u64 }
-}
-
-fn lerp_color(from: COLORREF, to: COLORREF, t: f32) -> COLORREF {
-    let f = from.0;
-    let t_c = to.0;
-    let fr = (f & 0xFF) as f32;
-    let fg = ((f >> 8) & 0xFF) as f32;
-    let fb = ((f >> 16) & 0xFF) as f32;
-    let tr = (t_c & 0xFF) as f32;
-    let tg = ((t_c >> 8) & 0xFF) as f32;
-    let tb = ((t_c >> 16) & 0xFF) as f32;
-    let r = (fr + (tr - fr) * t) as u32;
-    let g = (fg + (tg - fg) * t) as u32;
-    let b = (fb + (tb - fb) * t) as u32;
-    COLORREF((b << 16) | (g << 8) | r)
 }
 
 fn id_as_hmenu(id: u32) -> HMENU {
@@ -85,12 +66,10 @@ fn resource_id(id: u16) -> PCWSTR {
 
 struct DialogState {
     bitmaps: [Option<HBITMAP>; 4],
-    checking: bool,
+    skip_shown: bool,
+    waiting: bool,
     status_msg: String,
     status_error: bool,
-    bg_color: COLORREF,
-    flash_start_ms: u64,
-    flash_active: bool,
     should_launch: Arc<AtomicBool>,
 }
 
@@ -98,12 +77,6 @@ impl DialogState {
     fn set_status(&mut self, msg: &str, is_error: bool) {
         self.status_msg = msg.to_string();
         self.status_error = is_error;
-    }
-
-    fn start_flash(&mut self) {
-        self.flash_active = true;
-        self.bg_color = COLOR_DARK_RED;
-        self.flash_start_ms = get_tick_ms();
     }
 }
 
@@ -282,22 +255,6 @@ unsafe extern "system" fn dlg_proc(
                 let _ = SendMessageW(discl, WM_SETFONT, Some(WPARAM(font_small.0 as _)), Some(LPARAM(1)));
             }
 
-            // ── Done button ──
-            let _ = CreateWindowExW(
-                WS_EX_TRANSPARENT,
-                PCWSTR(to_wide("BUTTON").as_ptr()),
-                PCWSTR(to_wide("Done, Launch CrossFire PH").as_ptr()),
-                style_btn,
-                WINDOW_W / 2 - 240,
-                480,
-                220,
-                36,
-                Some(hwnd),
-                Some(id_as_hmenu(ID_DONE)),
-                Some(hi),
-                None,
-            );
-
             // ── Cancel button ──
             let _ = CreateWindowExW(
                 WS_EX_TRANSPARENT,
@@ -310,6 +267,24 @@ unsafe extern "system" fn dlg_proc(
                 36,
                 Some(hwnd),
                 Some(id_as_hmenu(ID_CANCEL)),
+                Some(hi),
+                None,
+            );
+
+            // ── Waiting button (disabled, replaced by Skip after 10s) ──
+            let waiting_style =
+                WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | BS_PUSHBUTTON as u32 | WS_DISABLED.0);
+            let _ = CreateWindowExW(
+                WS_EX_TRANSPARENT,
+                PCWSTR(to_wide("BUTTON").as_ptr()),
+                PCWSTR(to_wide("Waiting for Vanguard...").as_ptr()),
+                waiting_style,
+                WINDOW_W / 2 - 240,
+                480,
+                220,
+                36,
+                Some(hwnd),
+                Some(id_as_hmenu(ID_WAITING)),
                 Some(hi),
                 None,
             );
@@ -337,6 +312,18 @@ unsafe extern "system" fn dlg_proc(
                 );
             }
 
+            // ── Show initial waiting message ──
+            let waiting_msg = to_wide(
+                "Waiting for Vanguard to exit — CrossFire PH will launch as soon as Vanguard is terminated.",
+            );
+            let _ = SetDlgItemTextW(hwnd, 1022, PCWSTR(waiting_msg.as_ptr()));
+            state.waiting = true;
+
+            // ── Start auto-detect timer (2s interval) ──
+            let _ = SetTimer(Some(hwnd), TIMER_AUTOCHECK, 2000, None);
+            // ── Start skip button delay timer (fires once after 10s) ──
+            let _ = SetTimer(Some(hwnd), TIMER_SHOW_SKIP, 15000, None);
+
             LRESULT(0)
         }
 
@@ -350,8 +337,8 @@ unsafe extern "system" fn dlg_proc(
                 }
                 let state = &mut *(ptr as *mut DialogState);
 
-                if id == ID_DONE && !state.checking {
-                    done_clicked(hwnd, state);
+                if id == ID_SKIP {
+                    skip_clicked(hwnd, state);
                 } else if id == ID_CANCEL {
                     cancel_clicked(hwnd, state);
                 }
@@ -366,33 +353,56 @@ unsafe extern "system" fn dlg_proc(
             }
             let state = &mut *(ptr as *mut DialogState);
 
-            if wparam.0 == TIMER_FLASH && state.flash_active {
-                let elapsed = get_tick_ms().saturating_sub(state.flash_start_ms);
-                if elapsed >= FLASH_DURATION_MS {
-                    let _ = KillTimer(Some(hwnd), TIMER_FLASH);
-                    state.flash_active = false;
-                    state.bg_color = COLOR_DARK;
-                } else {
-                    let t = 1.0 - (elapsed as f64 / FLASH_DURATION_MS as f64);
-                    state.bg_color = lerp_color(COLOR_DARK_RED, COLOR_DARK, t as f32);
+            if wparam.0 == TIMER_AUTOCHECK {
+                // Silent auto-poll: check if Vanguard processes are gone
+                match crate::find_vanguard_processes() {
+                    Ok(list) if list.is_empty() => {
+                        let _ = KillTimer(Some(hwnd), TIMER_AUTOCHECK);
+                        let _ = KillTimer(Some(hwnd), TIMER_SHOW_SKIP);
+                        state.should_launch.store(true, Ordering::Release);
+                        let _ = DestroyWindow(hwnd);
+                    }
+                    _ => {}
                 }
-                let _ = InvalidateRect(Some(hwnd), None, true);
+            } else if wparam.0 == TIMER_SHOW_SKIP {
+                // Show Skip button after 10s delay
+                let _ = KillTimer(Some(hwnd), TIMER_SHOW_SKIP);
+                if !state.skip_shown {
+                    state.skip_shown = true;
+                    state.waiting = false;
+                    state.status_msg.clear();
+                    let _ = SetDlgItemTextW(hwnd, 1022, PCWSTR::null());
+                    // Destroy the waiting button
+                    if let Ok(hwait) = GetDlgItem(Some(hwnd), ID_WAITING as _) {
+                        let _ = DestroyWindow(hwait);
+                    }
+                    let hi = hinst();
+                    let style_btn = WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | BS_PUSHBUTTON as u32);
+                    let _ = CreateWindowExW(
+                        WS_EX_TRANSPARENT,
+                        PCWSTR(to_wide("BUTTON").as_ptr()),
+                        PCWSTR(to_wide("Skip, Launch CrossFire PH").as_ptr()),
+                        style_btn,
+                        WINDOW_W / 2 - 240,
+                        480,
+                        220,
+                        36,
+                        Some(hwnd),
+                        Some(id_as_hmenu(ID_SKIP)),
+                        Some(hi),
+                        None,
+                    );
+                    let _ = InvalidateRect(Some(hwnd), None, true);
+                }
             }
             LRESULT(0)
         }
 
         WM_ERASEBKGND => {
-            let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
-            let bg = if ptr != 0 {
-                let s = &*(ptr as *mut DialogState);
-                s.bg_color
-            } else {
-                COLOR_DARK
-            };
             let hdc = HDC(wparam.0 as *mut _);
             let mut rect = RECT::default();
             if GetClientRect(hwnd, &mut rect).is_ok() {
-                let brush = CreateSolidBrush(bg);
+                let brush = CreateSolidBrush(COLOR_DARK);
                 let _ = FillRect(hdc, &rect, brush);
                 let _ = DeleteObject(brush.into());
             }
@@ -413,7 +423,9 @@ unsafe extern "system" fn dlg_proc(
                     let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
                     let color = if ptr != 0 {
                         let s = &*(ptr as *mut DialogState);
-                        if s.status_error {
+                        if s.waiting {
+                            COLOR_AMBER
+                        } else if s.status_error {
                             COLOR_RED
                         } else {
                             COLOR_LIGHT
@@ -443,6 +455,8 @@ unsafe extern "system" fn dlg_proc(
         }
 
         WM_DESTROY => {
+            let _ = KillTimer(Some(hwnd), TIMER_AUTOCHECK);
+            let _ = KillTimer(Some(hwnd), TIMER_SHOW_SKIP);
             let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
             if ptr != 0 {
                 let state = Box::from_raw(ptr as *mut DialogState);
@@ -460,65 +474,21 @@ unsafe extern "system" fn dlg_proc(
 
 // ── Click Handlers ───────────────────────────────────────────────────────
 
-fn done_clicked(hwnd: HWND, state: &mut DialogState) {
-    state.checking = true;
-    state.status_msg.clear();
-    state.status_error = false;
-    state.flash_active = false;
-    state.bg_color = COLOR_DARK;
-
-    unsafe {
-        let h_btn = GetDlgItem(Some(hwnd), ID_DONE as _).unwrap();
-        EnableWindow(h_btn, 0);
-        let _ = SetDlgItemTextW(
-            hwnd,
-            ID_DONE as _,
-            PCWSTR(to_wide("Checking Vanguard...").as_ptr()),
-        );
-        let _ = InvalidateRect(Some(hwnd), None, true);
-    }
-
-    // Retry up to 3 times (1s apart) — Vanguard may still be shutting down
-    let mut retries = 0;
-    let max_retries = 3;
-    let result = loop {
-        let procs = crate::find_vanguard_processes();
-        match procs {
-            Ok(list) if list.is_empty() => {
-                break Ok(());
-            }
-            Ok(_) if retries < max_retries => {
-                retries += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-            _ => {
-                break Err(());
-            }
-        }
-    };
-
-    match result {
-        Ok(()) => {
+fn skip_clicked(hwnd: HWND, state: &mut DialogState) {
+    // Single check — user clicked Skip because they already exited Vanguard
+    state.waiting = false;
+    match crate::find_vanguard_processes() {
+        Ok(list) if list.is_empty() => {
             state.should_launch.store(true, Ordering::Release);
             unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_AUTOCHECK);
                 let _ = DestroyWindow(hwnd);
             }
         }
-        Err(()) => {
-            state.checking = false;
-            state.set_status("Vanguard is still running. Please try again.", true);
-            state.start_flash();
-
+        _ => {
+            state.set_status("Vanguard is still running. Try again shortly.", false);
             unsafe {
-                let h_btn = GetDlgItem(Some(hwnd), ID_DONE as _).unwrap();
-                EnableWindow(h_btn, 1);
-                let _ = SetDlgItemTextW(
-                    hwnd,
-                    ID_DONE as _,
-                    PCWSTR(to_wide("Done, Launch CrossFire PH").as_ptr()),
-                );
                 let _ = SetDlgItemTextW(hwnd, 1022, PCWSTR(to_wide(&state.status_msg).as_ptr()));
-                let _ = SetTimer(Some(hwnd), TIMER_FLASH, 16, None);
                 let _ = InvalidateRect(Some(hwnd), None, true);
             }
         }
@@ -559,12 +529,10 @@ pub fn run_gui() -> bool {
     // Prepare state
     let state = Box::new(DialogState {
         bitmaps: [None, None, None, None],
-        checking: false,
+        skip_shown: false,
+        waiting: true,
         status_msg: String::new(),
         status_error: false,
-        bg_color: COLOR_DARK,
-        flash_start_ms: 0,
-        flash_active: false,
         should_launch: should_launch.clone(),
     });
 
@@ -590,7 +558,12 @@ pub fn run_gui() -> bool {
             Some(&*state as *const _ as *const _),
         )
     } {
-        Ok(h) if !h.is_invalid() => h,
+        Ok(h) if !h.is_invalid() => {
+            unsafe {
+                MessageBeep(MB_ICONWARNING.0);
+            }
+            h
+        }
         _ => {
             eprintln!("Failed to create window");
             return false;
