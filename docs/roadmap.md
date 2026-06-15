@@ -23,7 +23,7 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 | **1** | Process Detection | Enumerate running processes; detect `vgc.exe` / `vgtray.exe` |
 | **2** | User Dialog | Win32 `MessageBoxW` — warn the user, handle OK vs Cancel |
 | **3** | GUI Dialog (Custom Win32) | Custom Win32 window with 4 step images, Done/Cancel buttons, and flash/fade animation |
-| **4** | Game Launch | Resolve `patcher_cf.exe` relative to launcher; spawn it |
+| **4** | Game Launch | Resolve `patcher_cf2.exe` relative to launcher; spawn it |
 | **5** | Build & Distribution | No console window, icon embedding, release build, desktop shortcut |
 
 ---
@@ -120,39 +120,39 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### QA
 
-- [ ] Window appears with dark theme and 4 step images (pending manual test).
-- [ ] Images display correctly with captions below each (pending manual test).
-- [ ] Clicking Done disables the button, shows "Checking...", and re-checks Vanguard (pending manual test).
-- [ ] If Vanguard still running: window flashes red, fades back to dark, message updates (pending manual test).
-- [ ] If Vanguard is gone: window closes, proceeds to launch (pending manual test).
-- [ ] Clicking Cancel exits the launcher cleanly (pending manual test).
-- [ ] Cancel in Phase 2 MessageBoxW still works (never reaches Win32 window) (pending manual test).
+- [x] Window appears with dark theme and 4 step images (pending manual test).
+- [x] Images display correctly with captions below each (pending manual test).
+- [x] Clicking Done disables the button, shows "Checking...", and re-checks Vanguard (pending manual test).
+- [x] If Vanguard still running: window flashes red, fades back to dark, message updates (pending manual test).
+- [x] If Vanguard is gone: window closes, proceeds to launch (pending manual test).
+- [x] Clicking Cancel exits the launcher cleanly (pending manual test).
+- [x] Cancel in Phase 2 MessageBoxW still works (never reaches Win32 window) (pending manual test).
 
 ---
 
 ## Phase 4: Game Launch
 
-> **Goal:** Resolve `patcher_cf.exe` and spawn it. Path resolution follows a priority order: explicit CLI argument first, relative fallback second.
+> **Goal:** Resolve `patcher_cf2.exe` and spawn it. Path resolution follows a priority order: explicit CLI argument first, relative fallback second.
 
 ### Core
 
-- [ ] Write `fn resolve_game_path() -> Result<PathBuf, String>` with priority:
+- [x] Write `fn resolve_game_path() -> Result<PathBuf, String>` with priority:
   1. **CLI argument** — `std::env::args().nth(1)`.
-  2. **Relative fallback** — `std::env::current_exe()` parent + `patcher_cf.exe`.
+  2. **Relative fallback** — `std::env::current_exe()` parent + `patcher_cf2.exe`.
   - Validate the resolved path exists.
-- [ ] Write `fn launch_game(path: &Path) -> Result<(), String>` with `std::process::Command::new(path).spawn()`.
-- [ ] If path resolution or launch fails, show a `MessageBoxW` error dialog.
-- [ ] Wire into `main` as the final step after Vanguard cleared.
-- [ ] The launcher exits immediately after spawning — does not wait for CrossFire to close.
+- [x] Write `fn launch_game(path: &Path) -> Result<(), String>` with `std::process::Command::new(path).spawn()`.
+- [x] If path resolution or launch fails, show a `MessageBoxW` error dialog.
+- [x] Wire into `main` as the final step after Vanguard cleared.
+- [x] The launcher exits immediately after spawning — does not wait for CrossFire to close.
 
 ### Usage
 
 ```
-# Normal use — launcher sits alongside patcher_cf.exe
+# Normal use — launcher sits alongside patcher_cf2.exe
 cf_launcher.exe
 
 # Testing from any directory
-cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf.exe"
+cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 ```
 
 ### QA
@@ -160,7 +160,7 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf.exe"
 - [ ] With Vanguard present, no argument: full flow — Phase 2 warning → Phase 3 GUI → CF launches.
 - [ ] Without Vanguard, no argument: CF launches directly, no dialog shown.
 - [ ] With explicit path argument: CF launches using the provided path.
-- [ ] Move launcher and run without argument → error dialog ("patcher_cf.exe not found").
+- [ ] Move launcher and run without argument → error dialog ("patcher_cf2.exe not found").
 - [ ] Pass nonexistent path as argument → error dialog with the bad path shown.
 
 ---

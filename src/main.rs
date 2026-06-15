@@ -1,6 +1,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use std::mem;
+use std::path::Path;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
@@ -11,7 +12,9 @@ use windows::Win32::System::Services::{
     SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOPPED,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_ICONWARNING, MB_OKCANCEL, MessageBoxW};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IDOK, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
+};
 use windows::core::PCWSTR;
 
 mod gui;
@@ -312,6 +315,62 @@ fn build_summary(procs: &[(u32, String)], vgk: Option<ServiceState>) -> Vec<Stri
     l
 }
 
+// ── Phase 4: Game Path Resolution & Launch ─────────────────────────────
+
+/// Resolve the path to `patcher_cf2.exe` with the following priority:
+/// 1. CLI argument — `std::env::args().nth(1)`
+/// 2. Relative fallback — launcher executable parent directory
+///
+/// Returns an error (with a user-facing message) if the resolved path
+/// does not exist or cannot be determined.
+fn resolve_game_path() -> Result<std::path::PathBuf, String> {
+    // Priority 1: explicit CLI argument
+    if let Some(arg) = std::env::args().nth(1) {
+        let p = std::path::PathBuf::from(&arg);
+        if p.exists() {
+            return Ok(p);
+        }
+        return Err(format!("Specified path not found:\n{}", arg));
+    }
+
+    // Priority 2: relative to the launcher executable
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Cannot determine launcher path: {}", e))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "Cannot determine launcher directory".to_string())?;
+    let p = dir.join("patcher_cf2.exe");
+    if p.exists() {
+        return Ok(p);
+    }
+    Err(format!(
+        "patcher_cf2.exe not found at:\n{}\n\nPlace cf_launcher.exe in the same directory as \
+         patcher_cf2.exe, or pass the full path as a command-line argument.",
+        p.display()
+    ))
+}
+
+/// Spawn `patcher_cf2.exe` and return immediately. The launcher does
+/// not wait for CrossFire PH to close.
+fn launch_game(path: &Path) -> Result<(), String> {
+    std::process::Command::new(path)
+        .spawn()
+        .map_err(|e| format!("Failed to launch {}:\n{}", path.display(), e))?;
+    Ok(())
+}
+
+/// Show a MessageBoxW error dialog with the given message.
+fn show_error_dialog(msg: &str) {
+    unsafe {
+        let _ = MessageBoxW(
+            None,
+            PCWSTR(wstring(msg).as_ptr()),
+            PCWSTR(wstring("CrossFire PH Launcher - Error").as_ptr()),
+            MB_OK | MB_ICONWARNING,
+        );
+    }
+}
+
 fn main() {
     let procs = match find_vanguard_processes() {
         Ok(p) => p,
@@ -331,7 +390,17 @@ fn main() {
     if !has {
         println!("No Vanguard detected. Launching...");
         println!("── Launch ──");
-        println!("Launching...");
+        match resolve_game_path() {
+            Ok(path) => {
+                println!("Game path: {}", path.display());
+                if let Err(e) = launch_game(&path) {
+                    show_error_dialog(&e);
+                }
+            }
+            Err(e) => {
+                show_error_dialog(&e);
+            }
+        }
         return;
     }
 
@@ -360,5 +429,15 @@ fn main() {
     }
 
     println!("\n── Launch ──");
-    println!("Launching...");
+    match resolve_game_path() {
+        Ok(path) => {
+            println!("Game path: {}", path.display());
+            if let Err(e) = launch_game(&path) {
+                show_error_dialog(&e);
+            }
+        }
+        Err(e) => {
+            show_error_dialog(&e);
+        }
+    }
 }
