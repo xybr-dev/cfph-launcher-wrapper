@@ -1,4 +1,5 @@
 #![allow(unsafe_op_in_unsafe_fn)]
+#![windows_subsystem = "windows"]
 
 use std::mem;
 use std::path::Path;
