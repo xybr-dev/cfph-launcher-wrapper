@@ -157,11 +157,11 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 
 ### QA
 
-- [ ] With Vanguard present, no argument: full flow — Phase 2 warning → Phase 3 GUI → CF launches.
-- [ ] Without Vanguard, no argument: CF launches directly, no dialog shown.
-- [ ] With explicit path argument: CF launches using the provided path.
-- [ ] Move launcher and run without argument → error dialog ("patcher_cf2.exe not found").
-- [ ] Pass nonexistent path as argument → error dialog with the bad path shown.
+- [x] With Vanguard present, no argument: full flow — Phase 2 warning → Phase 3 GUI → CF launches.
+- [x] Without Vanguard, no argument: CF launches directly, no dialog shown.
+- [x] With explicit path argument: CF launches using the provided path.
+- [x] Move launcher and run without argument → error dialog ("patcher_cf2.exe not found").
+- [x] Pass nonexistent path as argument → error dialog with the bad path shown.
 
 ---
 
@@ -179,7 +179,7 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 
 ### QA
 
-- [ ] Running `cf_launcher.exe` produces no visible console window.
+- [x] Running `cf_launcher.exe` produces no visible console window.
 - [ ] Release binary size is reasonable (target: under 5 MB even with gpui-ce).
 - [ ] Full end-to-end test on each affected machine: shortcut → warning → GUI dialog → Vanguard cleared → CrossFire launches.
 
