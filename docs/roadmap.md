@@ -22,7 +22,7 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 | **0** | Project Setup | Cargo project, Windows target, dependencies, compile to `.exe` |
 | **1** | Process Detection | Enumerate running processes; detect `vgc.exe` / `vgtray.exe` |
 | **2** | User Dialog | Win32 `MessageBoxW` — warn the user, handle OK vs Cancel |
-| **3** | Process Termination | Open and terminate Vanguard processes by PID |
+| **3** | GUI Dialog (Custom Win32) | Custom Win32 window with 4 step images, Done/Cancel buttons, and flash/fade animation |
 | **4** | Game Launch | Resolve `patcher_cf.exe` relative to launcher; spawn it |
 | **5** | Build & Distribution | No console window, icon embedding, release build, desktop shortcut |
 
@@ -34,29 +34,16 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### Core
 
-- Run `cargo new cf_launcher` and confirm the default `Hello, world!` compiles to a Windows `.exe`.
-- Set the default target in `.cargo/config.toml`:
-  ```toml
-  [build]
-  target = "x86_64-pc-windows-msvc"
-  ```
-- Add initial dependencies to `Cargo.toml`:
-  ```toml
-  [dependencies]
-  windows = { version = "0.58", features = [
-      "Win32_System_Diagnostics_ToolHelp",
-      "Win32_System_Threading",
-      "Win32_UI_WindowsAndMessaging",
-      "Win32_Foundation",
-  ] }
-  ```
-- Confirm `cargo build` succeeds with no warnings.
-- Place the compiled `.exe` in `D:\Games\CrossFire PH\` manually and confirm it runs (prints output, exits cleanly).
+- [x] Run `cargo new cf_launcher` and confirm the default `Hello, world!` compiles to a Windows `.exe`.
+- [x] Set the default target in `.cargo/config.toml`.
+- [x] Add initial dependencies to `Cargo.toml`.
+- [x] Confirm `cargo build` succeeds with no warnings.
+- [x] Place the compiled `.exe` in `D:\Games\CrossFire PH\` manually and confirm it runs (prints output, exits cleanly).
 
 ### QA
 
-- `cargo build` and `cargo build --release` both succeed.
-- `.exe` runs on a cafe machine without any Rust runtime dependency (Rust compiles to a self-contained binary — verify this assumption holds).
+- [x] `cargo build` and `cargo build --release` both succeed.
+- [x] `.exe` runs on a cafe machine without any Rust runtime dependency.
 
 ---
 
@@ -67,21 +54,16 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 ### Core
 
 - [x] Use `CreateToolhelp32Snapshot` + `Process32FirstW` / `Process32NextW` from the `windows` crate to walk the process list.
-- [x] Write a function `fn find_vanguard_processes() -> Result<Vec<u32>, Box<dyn std::error::Error>>` that returns PIDs for any running Vanguard processes (return type uses `Result` for proper error propagation per project conventions).
-- [x] Case-insensitive match on `vgc.exe` and `vgtray.exe` via `String::from_utf16_lossy()` + `eq_ignore_ascii_case()`.
-- [x] In `main`, print the result:
-  ```
-  Vanguard found: [PID 1234, PID 5678]
-  -- or --
-  Vanguard not running.
-  ```
-- [x] Learn: `PROCESSENTRY32W`, wide strings (`OsString`/`OsStr` vs `&[u16]`), handle cleanup with `CloseHandle` via a `Drop` guard (`SnapshotHandle`).
+- [x] Write `fn find_vanguard_processes() -> Result<Vec<(u32, String)>, Box<dyn std::error::Error>>` returning PIDs and names for any running Vanguard processes.
+- [x] Case-insensitive match on `vgc.exe` and `vgtray.exe`.
+- [x] In `main`, print the result.
+- [x] Learn: `PROCESSENTRY32W`, wide strings, handle cleanup with `CloseHandle` via `Drop` guard.
 
 ### QA
 
 - [x] Run on a machine with Vanguard active → PIDs reported correctly (pending manual test).
 - [x] Run on a machine without Vanguard → empty Vec, no panic (pending manual test).
-- [x] No handle leaks: `SnapshotHandle` drop guard guarantees `CloseHandle` on all exit paths (success, early return via `?`, panic unwinding). Verified by code review.
+- [x] No handle leaks: `SnapshotHandle` drop guard confirmed by code review.
 
 ---
 
@@ -91,68 +73,60 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### Core
 
-- [x] Write a function `fn show_vanguard_warning() -> bool` that returns `true` if the user clicked OK, `false` if Cancel.
-- [x] Use `MessageBoxW` from `Win32_UI_WindowsAndMessaging` with `MB_OKCANCEL | MB_ICONWARNING`.
-- [x] Message text (wide string literal):
-  ```
-  Riot Vanguard is currently running and will be force-closed
-  to allow CrossFire PH to start.
-
-  If you want to play League of Legends or Valorant afterwards,
-  you will need to restart this PC.
-
-  Click OK to proceed, or Cancel to exit.
-  ```
+- [x] Write `fn show_vanguard_warning() -> bool` using `MessageBoxW` with `MB_OKCANCEL | MB_ICONWARNING`.
+- [x] Message warns about Vanguard blocking CrossFire and the need to restart PC for League/Valorant.
 - [x] Window title: `CrossFire PH Launcher`
-- [x] Wire into `main`: if Vanguard detected → show dialog → if Cancel → exit early with `std::process::exit(0)`.
-- [x] Learn: `PCWSTR`, null-terminated wide strings, `w!()` macro from the `windows` crate.
+- [x] Wire into `main`: if Vanguard detected → show dialog → if Cancel → `std::process::exit(0)`.
+- [x] Learn: `PCWSTR`, null-terminated wide strings.
 
 ### QA
 
 - [x] Dialog appears with correct message and title (pending manual test).
-- [x] Clicking Cancel exits the launcher immediately with no further action (pending manual test).
-- [x] Clicking OK falls through to the next phase (currently just prints a placeholder) (pending manual test).
-- [x] Dialog window appears in the taskbar and can be focused normally (pending manual test).
+- [x] Clicking Cancel exits the launcher immediately (pending manual test).
+- [x] Clicking OK falls through to Phase 3 (pending manual test).
 
 ---
 
-## Phase 3: Process Termination & Manual Exit Dialog
+## Phase 3: GUI Dialog (Custom Win32 Window)
 
-> **Goal:** Gracefully shut down Vanguard processes via service stop (SCM) and a guided manual-exit dialog. Force-termination (`TerminateProcess`, `PostThreadMessageW`/`WM_QUIT`) was removed because it does not work on protected Vanguard processes.
+> **Goal:** Replace the MessageBoxW-based instruction dialog with a custom Win32 window that shows 4 step images with captions, Done/Cancel buttons, and flash/fade animation when Vanguard is still running. Uses the `windows` crate v0.61 GDI APIs — no external GUI framework required.
 
 ### Core
 
-- [x] ~~Termination via `TerminateProcess`~~ — **REMOVED.** Does not work on protected Vanguard processes (access denied).
-- [x] ~~Per-PID termination logging~~ — **REMOVED** along with the force-termination code.
-- [x] ~~`CloseHandle` after each operation~~ — **REMOVED** (`ProcessHandle` Drop guard deleted).
-- [x] ~~Non-fatal error handling for `TerminateProcess`~~ — **REMOVED.**
-- [x] ~~`std::thread::sleep(1500ms)` after termination~~ — **REMOVED** (no kernel resources to wait for after tray exit).
-- [x] Attempt graceful `vgc` service stop via SCM (`stop_service_gracefully`). — **KEPT.**
-- [x] Attempt `PostThreadMessageW(WM_QUIT)` to vgtray.exe's main thread. — **REMOVED.**
-- [x] ~~Fall back to `TerminateProcess` if graceful approaches fail~~ — **REMOVED.**
+- [x] Added `Win32_Graphics_Gdi` and `Win32_UI_Controls` to Cargo.toml features.
+- [x] Created `src/gui.rs` — custom Win32 dialog with `RegisterClassW`, `CreateWindowExW`, and a window procedure.
+- [x] Window (1160×600) shows:
+  - Warning text: "Riot Vanguard is running. CrossFire PH cannot start while Vanguard is active."
+  - Disclaimer: "If you want to play League of Legends or Valorant afterwards, you must restart this PC."
+  - 4 step images (from `docs/steps/0.bmp`–`3.bmp`) loaded via `LoadImageW` with `SS_BITMAP` static controls.
+  - Short captions below each image.
+- [x] Two buttons at the bottom: **[Done, Launch CrossFire PH]** and **[Cancel]**.
+- [x] **[Done]** behavior:
+  - On click: button text changes to "Checking Vanguard..." and the button becomes disabled (`EnableWindow`).
+  - Re-runs `find_vanguard_processes()` to check if Vanguard is still running.
+  - If still running: flash window background from `#8b0000` (dark red) to `#1e1e1e` (dark) over 800ms via `SetTimer`/`WM_TIMER`. Text changes to "Vanguard is still running. Please try again." Buttons and images remain visible.
+  - If Vanguard is gone: calls `DestroyWindow`, falls through to launch.
+- [x] **[Cancel]** behavior: exits the launcher (`DestroyWindow` → `PostQuitMessage` → `should_launch = false`).
+- [x] Kept `stop_service_gracefully("vgc")` and `stop_service_gracefully("vgk")` before the GUI window.
+- [x] Kept Phase 2 MessageBoxW warning as the first prompt.
 
-### Service Detection (added post-Phase-3 investigation)
+### Visual Design (Zed Dark Mode Palette)
 
-- [x] Add `Win32_System_Services` feature to `Cargo.toml`. — **KEPT.**
-- [x] `stop_service_gracefully(name)` — SCM stop + poll (handles tamper-resistant, not-found). — **KEPT.**
-- [x] Wire into `main` — attempts `vgc` stop first, then `vgk` stop. — **KEPT** (flow simplified: service stop → manual-exit loop).
-- [x] Learn: `SC_HANDLE`, `OpenSCManagerW`, `OpenServiceW`, `ControlService`, `CloseServiceHandle`. — **KEPT.**
-
-### Manual Exit Dialog (replaces all force-termination code)
-
-- [x] Added `show_manual_exit_dialog()` — text-only `MessageBoxW` with `MB_OKCANCEL`. Shows 4 step-by-step tray exit instructions. No images (confirmed text-only approach).
-- [x] Added re-check loop — after user clicks OK, re-runs `find_vanguard_processes()`. Loops until Vanguard is gone or user clicks Cancel.
-- [x] Simplified `main()` flow: detect → print summary → service stop → loop (re-detect + dialog) → "── Launch ──" placeholder.
-- [x] Removed dead code: `has_termination_privilege`, `relaunch_as_admin`, `exit_vanguard_via_thread`, `ProcessHandle`, `FindWindowCtx`, `enum_window_callback`, `find_window_by_pid`.
-- [x] Removed unused Cargo features: `Win32_System_Threading`, `Win32_UI_Shell`.
+- Window background: `#1e1e1e` (dark gray), via `WM_ERASEBKGND` handler
+- Text color: `#cccccc` (light gray), via `WM_CTLCOLORSTATIC`
+- Warning/disclaimer text: `#e2b714` (amber/yellow)
+- Error flash: `#8b0000` (dark red), fading back to `#1e1e1e` over 800ms
+- Button background: standard Win32 buttons (can be customized later)
 
 ### QA
 
-- [ ] Run with Vanguard active → dialog loop guides user through manual tray exit (pending manual test).
-- [ ] Run with Vanguard already stopped → no dialog, falls through to launch placeholder (pending manual test).
-- [ ] Cancel in instruction dialog → launcher exits cleanly (pending manual test).
-- [ ] Confirm CrossFire launches cleanly after Vanguard is cleared (pending manual test in Phase 4).
-- [ ] `vgk` kernel driver remains loaded until machine restart — SCM `SERVICE_CONTROL_STOP` may unload it; if tamper-resistant, reboot is required.
+- [ ] Window appears with dark theme and 4 step images (pending manual test).
+- [ ] Images display correctly with captions below each (pending manual test).
+- [ ] Clicking Done disables the button, shows "Checking...", and re-checks Vanguard (pending manual test).
+- [ ] If Vanguard still running: window flashes red, fades back to dark, message updates (pending manual test).
+- [ ] If Vanguard is gone: window closes, proceeds to launch (pending manual test).
+- [ ] Clicking Cancel exits the launcher cleanly (pending manual test).
+- [ ] Cancel in Phase 2 MessageBoxW still works (never reaches Win32 window) (pending manual test).
 
 ---
 
@@ -162,16 +136,14 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### Core
 
-- Write a function `fn resolve_game_path() -> Result<PathBuf, String>` that implements the following priority order:
-  1. **CLI argument** — if the user passed a path as the first argument (e.g. `cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf.exe"`), use it directly.
-  2. **Relative fallback** — if no argument is given, call `std::env::current_exe()`, navigate to its parent directory, and append `patcher_cf.exe`.
-  - In both cases, validate that the resolved path exists before returning it. Return an error string if it does not.
-- Read the argument with `std::env::args().nth(1)` — no external crate needed for a single optional positional argument.
-- Write a separate function `fn launch_game(path: &Path) -> Result<(), String>` that spawns the process with `std::process::Command::new(path).spawn()`.
-- If path resolution or launch fails, show a `MessageBoxW` error dialog with the reason.
-- Wire into `main` as the final step (reached whether or not Vanguard was running).
-- The launcher exits immediately after spawning — it does not wait for CrossFire to close.
-- Learn: `std::env::args()`, `Path`, `PathBuf`, `std::process::Command`, detached child processes on Windows.
+- [ ] Write `fn resolve_game_path() -> Result<PathBuf, String>` with priority:
+  1. **CLI argument** — `std::env::args().nth(1)`.
+  2. **Relative fallback** — `std::env::current_exe()` parent + `patcher_cf.exe`.
+  - Validate the resolved path exists.
+- [ ] Write `fn launch_game(path: &Path) -> Result<(), String>` with `std::process::Command::new(path).spawn()`.
+- [ ] If path resolution or launch fails, show a `MessageBoxW` error dialog.
+- [ ] Wire into `main` as the final step after Vanguard cleared.
+- [ ] The launcher exits immediately after spawning — does not wait for CrossFire to close.
 
 ### Usage
 
@@ -185,12 +157,11 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf.exe"
 
 ### QA
 
-- With Vanguard present, no argument: full flow — warning shown → Vanguard killed → CF launches.
-- Without Vanguard, no argument: CF launches directly, no dialog shown.
-- With explicit path argument: CF launches using the provided path regardless of where the launcher is run from.
-- Move the launcher to a different directory and run without argument → error dialog ("patcher_cf.exe not found"), not a panic.
-- Pass a nonexistent path as argument → error dialog with the bad path shown.
-- Pass a valid path as argument → CF launches correctly.
+- [ ] With Vanguard present, no argument: full flow — Phase 2 warning → Phase 3 GUI → CF launches.
+- [ ] Without Vanguard, no argument: CF launches directly, no dialog shown.
+- [ ] With explicit path argument: CF launches using the provided path.
+- [ ] Move launcher and run without argument → error dialog ("patcher_cf.exe not found").
+- [ ] Pass nonexistent path as argument → error dialog with the bad path shown.
 
 ---
 
@@ -200,48 +171,40 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf.exe"
 
 ### Core
 
-- **Suppress the console window** — add a Windows application manifest or use the `#![windows_subsystem = "windows"]` attribute at the top of `main.rs`. This prevents a black console window from flashing when the launcher runs.
-- **Embed a CrossFire PH icon** — create a `build.rs` build script that links a `.rc` resource file embedding an `.ico` icon. The `winres` crate simplifies this:
-  ```toml
-  [build-dependencies]
-  winres = "0.1"
-  ```
-  ```rust
-  // build.rs
-  fn main() {
-      let mut res = winres::WindowsResource::new();
-      res.set_icon("assets/cf_icon.ico");
-      res.compile().unwrap();
-  }
-  ```
-- **Release build profile** — add to `Cargo.toml`:
-  ```toml
-  [profile.release]
-  opt-level = "z"   # optimize for size
-  strip = true      # strip debug symbols
-  lto = true
-  ```
-- **Desktop shortcut** — replace the existing CrossFire PH desktop shortcut target with `cf_launcher.exe`. The icon on the shortcut can be set to `patcher_cf.exe` so it still looks identical to the original.
-- Document the one-time setup steps per affected machine (PC2, 3, 5, 6).
+- [ ] Suppress the console window — `#![windows_subsystem = "windows"]` attribute.
+- [ ] Embed a CrossFire PH icon via `build.rs` + `winres`.
+- [ ] Release build profile: `opt-level = "z"`, `strip = true`, `lto = true`.
+- [ ] Desktop shortcut — replace existing shortcut target with `cf_launcher.exe`.
+- [ ] Document one-time setup steps per affected machine (PC2, 3, 5, 6).
 
 ### QA
 
-- Running `cf_launcher.exe` produces no visible console window.
-- The `.exe` icon appears as CrossFire PH in File Explorer and on the desktop shortcut.
-- Release binary size is reasonable (target: under 2 MB).
-- Full end-to-end test on each affected machine: desktop shortcut → warning → Vanguard killed → CrossFire launches.
-- Confirm `cargo build --release` is reproducible (same binary behavior across rebuilds).
+- [ ] Running `cf_launcher.exe` produces no visible console window.
+- [ ] Release binary size is reasonable (target: under 5 MB even with gpui-ce).
+- [ ] Full end-to-end test on each affected machine: shortcut → warning → GUI dialog → Vanguard cleared → CrossFire launches.
 
 ---
 
 ## Dependencies & Constraints
 
+### Phase Dependency Order
+
 ```
 Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5
-(Setup)    (Detect)    (Dialog)    (Terminate)  (Launch)    (Polish)
+(Setup)    (Detect)    (Dialog)    (GUI)      (Launch)    (Polish)
 ```
 
 - **Strict sequential order.** Each phase depends on the prior phase's output compiling and passing QA.
-- **Phase 4 is the MVP.** A release build from Phase 4 (with a console window) is already a functional fix. Phase 5 is polish.
-- **Test on affected machines only.** PC2, 3, 5, 6 are the target. PC0, 1, 4, 7 do not need the launcher but it is safe to run on them (Vanguard not running → CF launches directly).
-- **Deep Freeze constraint does not apply** — the launcher lives on `D:\`, which is the active write volume. No special handling needed.
+- **Phase 4 is the MVP.** A release build from Phase 4 is a functional fix. Phase 5 is polish.
+- **Test on affected machines only.** PC2, 3, 5, 6 are the target.
+- **Deep Freeze constraint does not apply** — the launcher lives on `D:\`, which is the active write volume.
+
+### Key Constraints
+
+| Constraint | Detail |
+|---|---|
+| **Vanguard PPL protection** | `TerminateProcess` and `PostThreadMessageW(WM_QUIT)` are blocked by Protected Process Light. The launcher only uses SCM service stop + guided manual tray exit. |
+| **Win32 API crate** | The project uses the `windows` crate v0.58 (not `winapi`). |
+| **GPU UI framework** | Phase 3 uses a custom Win32 dialog (GDI) — no external GUI framework required. |
+| **No `unwrap()` in logic paths** | Use `Result` and propagate errors explicitly. |
+| **All Win32 handles must be closed** | `CloseHandle` / `CloseServiceHandle` in all code paths including early returns. |

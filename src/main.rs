@@ -1,3 +1,5 @@
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use std::mem;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -9,8 +11,10 @@ use windows::Win32::System::Services::{
     SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOPPED,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_OKCANCEL, MessageBoxW};
+use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_ICONWARNING, MB_OKCANCEL, MessageBoxW};
 use windows::core::PCWSTR;
+
+mod gui;
 
 struct SnapshotHandle(HANDLE);
 impl Drop for SnapshotHandle {
@@ -197,6 +201,28 @@ fn stop_service_gracefully(name: &str) -> bool {
 
 // ── Instruction Dialog ─────────────────────────────────────────────────
 
+/// Short Phase 2 warning dialog shown before the gpui window.
+/// Warns about Vanguard blocking CrossFire PH and the need to restart
+/// for League/Valorant.
+fn show_vanguard_warning() -> bool {
+    let msg = "Vanguard is preventing CrossFire PH from starting.\n\n\
+               If you want to play League of Legends or Valorant afterwards,\n\
+               you must restart this PC after exiting Vanguard.\n\n\
+               Click OK to open the step-by-step guide, or Cancel to exit.";
+    unsafe {
+        matches!(
+            MessageBoxW(
+                None,
+                PCWSTR(wstring(msg).as_ptr()),
+                PCWSTR(wstring("CrossFire PH Launcher").as_ptr()),
+                MB_OKCANCEL | MB_ICONWARNING,
+            ),
+            IDOK
+        )
+    }
+}
+
+#[allow(dead_code)]
 /// Opens the step images folder in Explorer and shows a dialog
 fn show_instruction(first: bool) -> bool {
     // Try to open the steps folder so user can see the images
@@ -318,27 +344,19 @@ fn main() {
     stop_service_gracefully("vgc");
     stop_service_gracefully("vgk");
 
-    println!("\n── Manual Exit ──");
-    let mut first = true;
-    loop {
-        let remaining = match find_vanguard_processes() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
-        };
-        if remaining.is_empty() {
-            println!("Vanguard exited. Proceeding.");
-            break;
-        }
-        println!("{} still running.", remaining.len());
+    println!("\n── GUI Dialog ──");
+    if !show_vanguard_warning() {
+        eprintln!("User cancelled.");
+        std::process::exit(0);
+    }
 
-        if !show_instruction(first) {
-            eprintln!("User cancelled.");
-            std::process::exit(0);
-        }
-        first = false;
+    let steps_dir = resolve_steps_dir().unwrap_or_else(|| {
+        eprintln!("Warning: docs/steps/ not found, using relative path");
+        std::path::PathBuf::from("docs/steps")
+    });
+
+    if !gui::run_gui(&steps_dir) {
+        std::process::exit(0);
     }
 
     println!("\n── Launch ──");
