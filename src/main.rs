@@ -204,7 +204,7 @@ fn stop_service_gracefully(name: &str) -> bool {
 
 // ── Instruction Dialog ─────────────────────────────────────────────────
 
-/// Short Phase 2 warning dialog shown before the gpui window.
+/// Short Phase 2 warning dialog shown before the GUI window.
 /// Warns about Vanguard blocking CrossFire PH and the need to restart
 /// for League/Valorant.
 fn show_vanguard_warning() -> bool {

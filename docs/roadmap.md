@@ -171,16 +171,16 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 
 ### Core
 
-- [ ] Suppress the console window — `#![windows_subsystem = "windows"]` attribute.
-- [ ] Embed a CrossFire PH icon via `build.rs` + `winres`.
-- [ ] Release build profile: `opt-level = "z"`, `strip = true`, `lto = true`.
+- [x] Suppress the console window — `#![windows_subsystem = "windows"]` attribute.
+- [x] Embed a CrossFire PH icon via `embed/steps.rc`.
+- [x] Release build profile: `opt-level = "z"`, `strip = true`, `lto = true`.
 - [ ] Desktop shortcut — replace existing shortcut target with `cf_launcher.exe`.
 - [ ] Document one-time setup steps per affected machine (PC2, 3, 5, 6).
 
 ### QA
 
 - [x] Running `cf_launcher.exe` produces no visible console window.
-- [ ] Release binary size is reasonable (target: under 5 MB even with gpui-ce).
+- [ ] Release binary size is reasonable (target: under 5 MB).
 - [ ] Full end-to-end test on each affected machine: shortcut → warning → GUI dialog → Vanguard cleared → CrossFire launches.
 
 ---
