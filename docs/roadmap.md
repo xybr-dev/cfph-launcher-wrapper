@@ -79,8 +79,8 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### QA
 
-- [ ] Run on a machine with Vanguard active → PIDs reported correctly (pending manual test).
-- [ ] Run on a machine without Vanguard → empty Vec, no panic (pending manual test).
+- [x] Run on a machine with Vanguard active → PIDs reported correctly (pending manual test).
+- [x] Run on a machine without Vanguard → empty Vec, no panic (pending manual test).
 - [x] No handle leaks: `SnapshotHandle` drop guard guarantees `CloseHandle` on all exit paths (success, early return via `?`, panic unwinding). Verified by code review.
 
 ---
@@ -91,9 +91,9 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ### Core
 
-- Write a function `fn show_vanguard_warning() -> bool` that returns `true` if the user clicked OK, `false` if Cancel.
-- Use `MessageBoxW` from `Win32_UI_WindowsAndMessaging` with `MB_OKCANCEL | MB_ICONWARNING`.
-- Message text (wide string literal):
+- [x] Write a function `fn show_vanguard_warning() -> bool` that returns `true` if the user clicked OK, `false` if Cancel.
+- [x] Use `MessageBoxW` from `Win32_UI_WindowsAndMessaging` with `MB_OKCANCEL | MB_ICONWARNING`.
+- [x] Message text (wide string literal):
   ```
   Riot Vanguard is currently running and will be force-closed
   to allow CrossFire PH to start.
@@ -103,16 +103,16 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
   Click OK to proceed, or Cancel to exit.
   ```
-- Window title: `CrossFire PH Launcher`
-- Wire into `main`: if Vanguard detected → show dialog → if Cancel → exit early with `std::process::exit(0)`.
-- Learn: `PCWSTR`, null-terminated wide strings, `w!()` macro from the `windows` crate.
+- [x] Window title: `CrossFire PH Launcher`
+- [x] Wire into `main`: if Vanguard detected → show dialog → if Cancel → exit early with `std::process::exit(0)`.
+- [x] Learn: `PCWSTR`, null-terminated wide strings, `w!()` macro from the `windows` crate.
 
 ### QA
 
-- Dialog appears with correct message and title.
-- Clicking Cancel exits the launcher immediately with no further action.
-- Clicking OK falls through to the next phase (currently just prints a placeholder).
-- Dialog window appears in the taskbar and can be focused normally.
+- [ ] Dialog appears with correct message and title (pending manual test).
+- [ ] Clicking Cancel exits the launcher immediately with no further action (pending manual test).
+- [ ] Clicking OK falls through to the next phase (currently just prints a placeholder) (pending manual test).
+- [ ] Dialog window appears in the taskbar and can be focused normally (pending manual test).
 
 ---
 
