@@ -3,14 +3,14 @@
 
 use std::mem;
 use std::path::Path;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
 use windows::Win32::System::Services::{
-    CloseServiceHandle, ControlService, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx,
-    SC_HANDLE, SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP,
-    SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOPPED,
+    CloseServiceHandle, OpenSCManagerW, OpenServiceW, QueryServiceStatusEx, SC_HANDLE,
+    SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
+    SERVICE_STATUS, SERVICE_STOPPED,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     IDOK, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
@@ -103,102 +103,6 @@ fn check_vgk_service() -> Option<ServiceState> {
         Some(ServiceState::Stopped)
     } else {
         Some(ServiceState::Running)
-    }
-}
-
-fn stop_service_gracefully(name: &str) -> bool {
-    let nw = wstring(name);
-    let scm = match unsafe { OpenSCManagerW(PCWSTR::null(), PCWSTR::null(), SC_MANAGER_CONNECT) } {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("  ✗ SCM: {}", e);
-            return false;
-        }
-    };
-    let _g1 = ServiceHandle(scm);
-    let svc = match unsafe {
-        OpenServiceW(
-            scm,
-            PCWSTR(nw.as_ptr()),
-            SERVICE_STOP | SERVICE_QUERY_STATUS,
-        )
-    } {
-        Ok(h) => h,
-        Err(_) => {
-            println!("  ℹ  {} not found.", name);
-            return true;
-        }
-    };
-    let _g2 = ServiceHandle(svc);
-    let mut st = unsafe { mem::zeroed::<SERVICE_STATUS>() };
-    let mut need: u32 = 0;
-    if unsafe {
-        QueryServiceStatusEx(
-            svc,
-            SC_STATUS_PROCESS_INFO,
-            Some(std::slice::from_raw_parts_mut(
-                &mut st as *mut _ as *mut u8,
-                mem::size_of::<SERVICE_STATUS>(),
-            )),
-            &mut need,
-        )
-    }
-    .is_err()
-    {
-        eprintln!("  ✗ Failed to query {} status.", name);
-        return false;
-    }
-    let s = st.dwCurrentState.0 as u32;
-    if s == SERVICE_STOPPED.0 {
-        println!("  ℹ  {} already stopped.", name);
-        return true;
-    }
-    if s != SERVICE_RUNNING.0 {
-        println!("  ℹ  {} state={}.", name, s);
-        return true;
-    }
-    println!("  ⏹  Stopping {} ...", name);
-    match unsafe { ControlService(svc, SERVICE_CONTROL_STOP, &mut st) } {
-        Ok(()) => {
-            for i in 0..50 {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                let mut ps = unsafe { mem::zeroed::<SERVICE_STATUS>() };
-                let mut pn: u32 = 0;
-                if unsafe {
-                    QueryServiceStatusEx(
-                        svc,
-                        SC_STATUS_PROCESS_INFO,
-                        Some(std::slice::from_raw_parts_mut(
-                            &mut ps as *mut _ as *mut u8,
-                            mem::size_of::<SERVICE_STATUS>(),
-                        )),
-                        &mut pn,
-                    )
-                }
-                .is_err()
-                {
-                    break;
-                }
-                if ps.dwCurrentState.0 as u32 == SERVICE_STOPPED.0 {
-                    println!("  ✓ {} stopped.", name);
-                    return true;
-                }
-                if i == 49 {
-                    eprintln!("  ⚠  {} stop timeout.", name);
-                }
-            }
-            false
-        }
-        Err(e) => {
-            let code = unsafe { GetLastError() };
-            if code.0 == 1061 {
-                println!("  ⚠  {} is tamper-resistant.", name);
-                false
-            } else {
-                eprintln!("  ✗ Failed to stop {}: {}", name, e);
-                false
-            }
-        }
     }
 }
 
@@ -339,10 +243,6 @@ fn main() {
     for l in &build_summary(&procs, vgk) {
         println!("{}", l);
     }
-
-    println!("\n── Service Stop ──");
-    stop_service_gracefully("vgc");
-    stop_service_gracefully("vgk");
 
     println!("\n── GUI Dialog ──");
     if !show_vanguard_warning() {
