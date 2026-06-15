@@ -12,9 +12,7 @@ use windows::Win32::System::Services::{
     SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_QUERY_STATUS, SERVICE_RUNNING,
     SERVICE_STATUS, SERVICE_STOPPED,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    IDOK, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
-};
+use windows::Win32::UI::WindowsAndMessaging::{MB_ICONWARNING, MB_OK, MessageBoxW};
 use windows::core::PCWSTR;
 
 mod gui;
@@ -103,29 +101,6 @@ fn check_vgk_service() -> Option<ServiceState> {
         Some(ServiceState::Stopped)
     } else {
         Some(ServiceState::Running)
-    }
-}
-
-// ── Instruction Dialog ─────────────────────────────────────────────────
-
-/// Short Phase 2 warning dialog shown before the GUI window.
-/// Warns about Vanguard blocking CrossFire PH and the need to restart
-/// for League/Valorant.
-fn show_vanguard_warning() -> bool {
-    let msg = "Vanguard is preventing CrossFire PH from starting.\n\n\
-               If you want to play League of Legends or Valorant afterwards,\n\
-               you must restart this PC after exiting Vanguard.\n\n\
-               Click OK to open the step-by-step guide, or Cancel to exit.";
-    unsafe {
-        matches!(
-            MessageBoxW(
-                None,
-                PCWSTR(wstring(msg).as_ptr()),
-                PCWSTR(wstring("CrossFire PH Launcher").as_ptr()),
-                MB_OKCANCEL | MB_ICONWARNING,
-            ),
-            IDOK
-        )
     }
 }
 
@@ -245,11 +220,6 @@ fn main() {
     }
 
     println!("\n── GUI Dialog ──");
-    if !show_vanguard_warning() {
-        eprintln!("User cancelled.");
-        std::process::exit(0);
-    }
-
     if !gui::run_gui() {
         std::process::exit(0);
     }

@@ -22,9 +22,10 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 | **0** | Project Setup | Cargo project, Windows target, dependencies, compile to `.exe` |
 | **1** | Process Detection | Enumerate running processes; detect `vgc.exe` / `vgtray.exe` |
 | **2** | User Dialog | Win32 `MessageBoxW` — warn the user, handle OK vs Cancel |
-| **3** | GUI Dialog (Custom Win32) | Custom Win32 window with 4 step images, Done/Cancel buttons, and flash/fade animation |
+| **3** | GUI Dialog (Custom Win32) | Custom Win32 window with 4 step images, Cancel button, and auto-detect polling timer |
 | **4** | Game Launch | Resolve `patcher_cf2.exe` relative to launcher; spawn it |
 | **5** | Build & Distribution | No console window, icon embedding, release build, desktop shortcut |
+| **6** | Auto-Detect Vanguard Exit | Replace Done-button retry loop with silent polling timer that auto-proceeds when Vanguard exits |
 
 ---
 
@@ -69,29 +70,24 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 
 ## Phase 2: User Dialog
 
-> **Goal:** Display a Win32 `MessageBoxW` that warns the gamer and returns their choice (OK to proceed, Cancel to abort).
+> ~~**Goal:** Display a Win32 `MessageBoxW` that warns the gamer and returns their choice (OK to proceed, Cancel to abort).~~
+> **Removed in Phase 6 simplification.** The initial MessageBoxW warning was removed — the custom GUI window (Phase 3) now handles everything including the warning text, instructions, and auto-detect polling.
 
 ### Core
 
-- [x] Write `fn show_vanguard_warning() -> bool` using `MessageBoxW` with `MB_OKCANCEL | MB_ICONWARNING`.
-- [x] Message warns about Vanguard blocking CrossFire and the need to restart PC for League/Valorant.
-- [x] Window title: `CrossFire PH Launcher`
-- [x] Wire into `main`: if Vanguard detected → show dialog → if Cancel → `std::process::exit(0)`.
-- [x] Learn: `PCWSTR`, null-terminated wide strings.
+- [x] ~~`show_vanguard_warning()` function~~ **Removed** — no longer needed. Flow goes directly from detection to `gui::run_gui()`.
 
 ### QA
 
-- [x] Dialog appears with correct message and title (pending manual test).
-- [x] Clicking Cancel exits the launcher immediately (pending manual test).
-- [x] Clicking OK falls through to Phase 3 (pending manual test).
+- ~~Phase 2 dialog removed entirely~~ — Cancel behavior is now handled by the Cancel button in the Phase 3 GUI window.
 
 ---
 
 ## Phase 3: GUI Dialog (Custom Win32 Window)
 
-> **Goal:** Replace the MessageBoxW-based instruction dialog with a custom Win32 window that shows 4 step images with captions, Done/Cancel buttons, and flash/fade animation when Vanguard is still running. Uses the `windows` crate v0.61 GDI APIs — no external GUI framework required.
+> **Goal:** Custom Win32 window that shows 4 step images with captions, a Cancel button, and an auto-detect polling timer. Replaces the original Done-button + flash/fade design with a silent polling approach.
 
-### Core
+### Core (Original — Phase 3)
 
 - [x] Added `Win32_Graphics_Gdi` and `Win32_UI_Controls` to Cargo.toml features.
 - [x] Created `src/gui.rs` — custom Win32 dialog with `RegisterClassW`, `CreateWindowExW`, and a window procedure.
@@ -100,33 +96,17 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
   - Disclaimer: "If you want to play League of Legends or Valorant afterwards, you must restart this PC."
   - 4 step images embedded as Windows resources (IDs 1010–1013) via `embed-resource` crate, loaded via `LoadImageW(hinst(), MAKEINTRESOURCE, ..., LR_DEFAULTCOLOR)` with `SS_BITMAP` static controls.
   - Short captions below each image.
-- [x] Two buttons at the bottom: **[Done, Launch CrossFire PH]** and **[Cancel]**.
-- [x] **[Done]** behavior:
-  - On click: button text changes to "Checking Vanguard..." and the button becomes disabled (`EnableWindow`).
-  - Re-runs `find_vanguard_processes()` to check if Vanguard is still running.
-  - If still running: flash window background from `#8b0000` (dark red) to `#1e1e1e` (dark) over 800ms via `SetTimer`/`WM_TIMER`. Text changes to "Vanguard is still running. Please try again." Buttons and images remain visible.
-  - If Vanguard is gone: calls `DestroyWindow`, falls through to launch.
+- [x] ~~Done button with synchronous retry loop~~ **Replaced in Phase 6** with auto-detect timer + Skip button.
 - [x] **[Cancel]** behavior: exits the launcher (`DestroyWindow` → `PostQuitMessage` → `should_launch = false`).
-- [x] Kept `stop_service_gracefully("vgc")` and `stop_service_gracefully("vgk")` before the GUI window.
-- [x] Kept Phase 2 MessageBoxW warning as the first prompt.
+- [x] ~~Flash/fade animation~~ **Removed in Phase 6** — no longer needed.
 
-### Visual Design (Zed Dark Mode Palette)
+### Changes in Phase 6
 
-- Window background: `#1e1e1e` (dark gray), via `WM_ERASEBKGND` handler
-- Text color: `#cccccc` (light gray), via `WM_CTLCOLORSTATIC`
-- Warning/disclaimer text: `#e2b714` (amber/yellow)
-- Error flash: `#8b0000` (dark red), fading back to `#1e1e1e` over 800ms
-- Button background: standard Win32 buttons (can be customized later)
-
-### QA
-
-- [x] Window appears with dark theme and 4 step images (pending manual test).
-- [x] Images display correctly with captions below each (pending manual test).
-- [x] Clicking Done disables the button, shows "Checking...", and re-checks Vanguard (pending manual test).
-- [x] If Vanguard still running: window flashes red, fades back to dark, message updates (pending manual test).
-- [x] If Vanguard is gone: window closes, proceeds to launch (pending manual test).
-- [x] Clicking Cancel exits the launcher cleanly (pending manual test).
-- [x] Cancel in Phase 2 MessageBoxW still works (never reaches Win32 window) (pending manual test).
+- [x] Removed the initial Phase 2 `MessageBoxW` warning — flow goes directly to the GUI window.
+- [x] No Done button at window creation — replaced by silent auto-polling timer (`TIMER_AUTOCHECK`, 2s interval).
+- [x] Skip button appears after 10s (`TIMER_SHOW_SKIP`) as an escape hatch.
+- [x] Flash/fade animation removed entirely.
+- [x] Both timers killed in `WM_DESTROY` for clean shutdown.
 
 ---
 
@@ -157,7 +137,7 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 
 ### QA
 
-- [x] With Vanguard present, no argument: full flow — Phase 2 warning → Phase 3 GUI → CF launches.
+- [x] With Vanguard present, no argument: full flow — Phase 3 GUI → Vanguard auto-detected → CF launches.
 - [x] Without Vanguard, no argument: CF launches directly, no dialog shown.
 - [x] With explicit path argument: CF launches using the provided path.
 - [x] Move launcher and run without argument → error dialog ("patcher_cf2.exe not found").
@@ -185,13 +165,62 @@ cf_launcher.exe "D:\Games\CrossFire PH\patcher_cf2.exe"
 
 ---
 
+## Phase 6: Auto-Detect Vanguard Exit
+
+> **Goal:** Replace the Done button's synchronous retry loop with a silent polling timer in the message loop that automatically detects when `vgtray.exe` / `vgc.exe` exits. The user follows the 4 step images and the launcher auto-proceeds — no button click required.
+
+### Background
+
+The original Phase 3 done button uses a synchronous loop that polls `find_vanguard_processes()` up to 3 times (1s apart). If Vanguard is still running, it shows a red flash and the user must click "Done" again. This is clunky — the user has to keep checking back and clicking.
+
+The enhancement replaces this with an idle timer that continuously monitors Vanguard in the background. The key technical insight is that [`CreateToolhelp32Snapshot` is a kernel-level operation](https://learn.microsoft.com/en-us/windows/win32/api/tlhelp32/nf-tlhelp32-createtoolhelp32snapshot) that bypasses PPL restrictions, so our existing `find_vanguard_processes()` works fine for polling — unlike `OpenProcess(PROCESS_SYNCHRONIZE)` + `WaitForSingleObject`, which would be denied by PPL.
+
+### Core
+
+- [x] Add `const TIMER_AUTOCHECK: usize = 2002` alongside `TIMER_FLASH`.
+- [x] Add `const TIMER_SHOW_SKIP: usize = 2003` for the delay timer.
+- [x] Start `SetTimer(Some(hwnd), TIMER_AUTOCHECK, 2000, None)` in `WM_CREATE` — fires every 2s for the entire lifetime of the window.
+- [x] Handle `TIMER_AUTOCHECK` in `WM_TIMER`:
+  - Call `crate::find_vanguard_processes()`.
+  - If the returned list is empty → `KillTimer(TIMER_AUTOCHECK)`, `should_launch.store(true)`, `DestroyWindow`.
+  - This timer **never stops** (even after Skip button appears) — it's the primary detection mechanism.
+- [x] **Skip button** — no Done button at window creation. Instead:
+  - Start `SetTimer(Some(hwnd), TIMER_SHOW_SKIP, 10000, None)` in `WM_CREATE`.
+  - When `TIMER_SHOW_SKIP` fires (10s elapsed): dynamically create a "Skip" button (`CreateWindowExW` with `WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON`) positioned where Done was. Kill `TIMER_SHOW_SKIP` (fire-and-forget timer).
+- [x] **Skip click** handler:
+  - Single check of `find_vanguard_processes()`.
+  - If Vanguard is gone → proceed.
+  - If still running → show "Waiting for Vanguard to exit..." (amber text, no flash). The auto-check timer (`TIMER_AUTOCHECK`) still runs every 2s — Skip is just a manual "check now" for edge cases where the user already closed Vanguard but the timer hasn't fired yet.
+- [x] Kill both timers in `WM_DESTROY` for clean shutdown.
+- [x] Remove the flash/fade animation — it's no longer needed since the timer handles detection silently.
+
+### Key Decisions
+
+| Question | Decision | Why |
+|---|---|---|
+| Async Rust? | Not needed | Win32 message loop is already an event loop; `SetTimer` + `WM_TIMER` is the idiomatic approach. Adding tokio would add a heavy dependency and a background thread just to do what a single `SetTimer` accomplishes. |
+| Skip button instead of Done? | Skip appears after 10s | The user shouldn't feel compelled to click anything — the timer auto-detects. Skip is an escape hatch for "I already exited Vanguard, stop waiting." The 10s delay prevents accidental clicks while the user is still reading the instructions. |
+| Poll interval? | 2 seconds | Balances responsiveness with CPU usage. `CreateToolhelp32Snapshot` is cheap; 2s is unnoticeable. |
+| What about `vgk` service? | Ignored | `vgk.sys` stays loaded until reboot — it's not killed by the tray "Exit" action. The auto-detect only checks `vgtray.exe` / `vgc.exe` processes. |
+
+### QA
+
+- [ ] Auto-detect timer fires every 2 seconds and calls `find_vanguard_processes()` without blocking the UI (pending manual test).
+- [ ] When Vanguard processes disappear (user exits tray), window auto-closes and game launches. No button click needed (pending manual test).
+- [ ] No buttons visible at window creation (besides Cancel). Skip button appears after 10 seconds (pending manual test).
+- [ ] Clicking Skip runs a single check: if Vanguard is gone, proceeds; if still running, shows "Waiting..." and timer handles the rest (pending manual test).
+- [ ] Clicking Cancel exits the launcher cleanly (pending manual test).
+- [ ] No handle leaks or timer leaks on any exit path (code review).
+
+---
+
 ## Dependencies & Constraints
 
 ### Phase Dependency Order
 
 ```
-Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5
-(Setup)    (Detect)    (Dialog)    (GUI)      (Launch)    (Polish)
+Phase 0 ──► Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► Phase 6
+(Setup)    (Detect)    (Dialog)    (GUI)      (Launch)    (Polish)  (Auto-Detect)
 ```
 
 - **Strict sequential order.** Each phase depends on the prior phase's output compiling and passing QA.
