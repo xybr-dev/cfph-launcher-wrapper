@@ -98,7 +98,7 @@ Phases are sequential. Each phase produces a working, testable binary. The proje
 - [x] Window (1160×600) shows:
   - Warning text: "Riot Vanguard is running. CrossFire PH cannot start while Vanguard is active."
   - Disclaimer: "If you want to play League of Legends or Valorant afterwards, you must restart this PC."
-  - 4 step images (from `docs/steps/0.bmp`–`3.bmp`) loaded via `LoadImageW` with `SS_BITMAP` static controls.
+  - 4 step images embedded as Windows resources (IDs 1010–1013) via `embed-resource` crate, loaded via `LoadImageW(hinst(), MAKEINTRESOURCE, ..., LR_DEFAULTCOLOR)` with `SS_BITMAP` static controls.
   - Short captions below each image.
 - [x] Two buttons at the bottom: **[Done, Launch CrossFire PH]** and **[Cancel]**.
 - [x] **[Done]** behavior:

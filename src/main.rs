@@ -11,7 +11,6 @@ use windows::Win32::System::Services::{
     SC_HANDLE, SC_MANAGER_CONNECT, SC_STATUS_PROCESS_INFO, SERVICE_CONTROL_STOP,
     SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STOP, SERVICE_STOPPED,
 };
-use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     IDOK, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
 };
@@ -225,81 +224,6 @@ fn show_vanguard_warning() -> bool {
     }
 }
 
-#[allow(dead_code)]
-/// Opens the step images folder in Explorer and shows a dialog
-fn show_instruction(first: bool) -> bool {
-    // Try to open the steps folder so user can see the images
-    let steps_dir = resolve_steps_dir();
-    if let Some(dir) = steps_dir {
-        let dw = wstring(dir.to_str().unwrap_or(""));
-        let verb = wstring("open");
-        unsafe {
-            let _ = ShellExecuteW(
-                None,
-                PCWSTR(verb.as_ptr()),
-                PCWSTR(dw.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-            );
-        }
-    }
-
-    let msg = if first {
-        "Vanguard is preventing CrossFire PH from starting.\n\n\
-         A folder with step-by-step images has been opened.\n\
-         Follow these steps to exit Vanguard:\n\n\
-         \u{2460} Click \"^\" (show hidden icons) at bottom-right.\n\
-         \u{2461} Right-click the Riot Vanguard icon (red/yellow).\n\
-         \u{2462} Click \"Exit Vanguard\".\n\
-         \u{2463} Click \"Yes\" to confirm.\n\n\
-         Click OK after completing all steps, or Cancel to exit."
-    } else {
-        "Vanguard is still running.\n\n\
-         The step images folder is still open for reference.\n\n\
-         \u{2460} Click \"^\" to show hidden icons.\n\
-         \u{2461} Right-click Riot Vanguard icon.\n\
-         \u{2462} Click \"Exit Vanguard\".\n\
-         \u{2463} Click \"Yes\" to confirm.\n\n\
-         Click OK after exiting, or Cancel."
-    };
-    unsafe {
-        matches!(
-            MessageBoxW(
-                None,
-                PCWSTR(wstring(msg).as_ptr()),
-                PCWSTR(wstring("Manual Action Required").as_ptr()),
-                MB_OKCANCEL
-            ),
-            IDOK
-        )
-    }
-}
-
-fn resolve_steps_dir() -> Option<std::path::PathBuf> {
-    let rel = std::path::PathBuf::from("docs/steps");
-    if rel.is_dir() {
-        return Some(rel);
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(p) = exe.parent()
-    {
-        let p = p.join(&rel);
-        if p.is_dir() {
-            return Some(p);
-        }
-    }
-    let mut cwd = std::env::current_dir().ok()?;
-    for _ in 0..3 {
-        let p = cwd.join(&rel);
-        if p.is_dir() {
-            return Some(p);
-        }
-        cwd.pop();
-    }
-    None
-}
-
 fn wstring(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -419,12 +343,7 @@ fn main() {
         std::process::exit(0);
     }
 
-    let steps_dir = resolve_steps_dir().unwrap_or_else(|| {
-        eprintln!("Warning: docs/steps/ not found, using relative path");
-        std::path::PathBuf::from("docs/steps")
-    });
-
-    if !gui::run_gui(&steps_dir) {
+    if !gui::run_gui() {
         std::process::exit(0);
     }
 

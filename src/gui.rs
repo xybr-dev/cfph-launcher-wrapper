@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::Foundation::*;
@@ -77,6 +76,11 @@ fn hinst() -> HINSTANCE {
     unsafe { HINSTANCE(GetModuleHandleW(None).unwrap().0) }
 }
 
+/// Convert an integer resource ID to PCWSTR (equivalent of MAKEINTRESOURCEW).
+fn resource_id(id: u16) -> PCWSTR {
+    PCWSTR(id as usize as *const u16)
+}
+
 // ── State ────────────────────────────────────────────────────────────────
 
 struct DialogState {
@@ -87,7 +91,6 @@ struct DialogState {
     bg_color: COLORREF,
     flash_start_ms: u64,
     flash_active: bool,
-    steps_dir: PathBuf,
     should_launch: Arc<AtomicBool>,
 }
 
@@ -123,22 +126,19 @@ unsafe extern "system" fn dlg_proc(
             let style_txt = WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | SS_CENTER);
             let style_btn = WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | BS_PUSHBUTTON as u32);
 
-            // ── Load BMPs ──
-            let img_files = ["0.bmp", "1.bmp", "2.bmp", "3.bmp"];
+            // ── Load BMPs from embedded resources ──
             let img_ids = [1010u32, 1011, 1012, 1013];
             let img_x = [30i32, 256, 480, 706];
             let img_sizes: [(i32, i32); 4] = [(210, 97), (208, 145), (210, 182), (405, 183)];
 
             for i in 0..4 {
-                let full = state.steps_dir.join(img_files[i]);
-                let ws = to_wide(full.to_str().unwrap_or(""));
                 match LoadImageW(
-                    None,
-                    PCWSTR(ws.as_ptr()),
+                    Some(hinst()),
+                    resource_id(img_ids[i] as u16),
                     IMAGE_BITMAP,
                     0,
                     0,
-                    LR_LOADFROMFILE,
+                    LR_DEFAULTCOLOR,
                 ) {
                     Ok(h) if !h.is_invalid() => {
                         state.bitmaps[i] = Some(HBITMAP(h.0));
@@ -534,7 +534,7 @@ fn cancel_clicked(hwnd: HWND, state: &mut DialogState) {
 
 // ── Public Entry Point ───────────────────────────────────────────────────
 
-pub fn run_gui(steps_dir: &Path) -> bool {
+pub fn run_gui() -> bool {
     let should_launch = Arc::new(AtomicBool::new(false));
     let hi = hinst();
 
@@ -565,7 +565,6 @@ pub fn run_gui(steps_dir: &Path) -> bool {
         bg_color: COLOR_DARK,
         flash_start_ms: 0,
         flash_active: false,
-        steps_dir: steps_dir.to_path_buf(),
         should_launch: should_launch.clone(),
     });
 
