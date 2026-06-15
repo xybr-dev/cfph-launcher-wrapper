@@ -4,7 +4,9 @@ A lightweight Windows executable that detects running Riot Vanguard processes/vg
 
 ## Purpose
 
-CrossFire PH is incompatible with Riot Vanguard's kernel-level driver. If Vanguard is active when `patcher_cf2.exe` launches, it returns `crossfire init failed` and exits. This wrapper detects Vanguard upfront, warns the user, and prevents an unnecessary launch attempt.
+CrossFire PH is incompatible with Riot Vanguard's kernel-level driver. The root cause: Vanguard's kernel driver (`vgk.sys`) explicitly blocks `sgack.sys` — a kernel-mode anti-cheat/safe-guard driver shipped with CrossFire PH. When `vgk` is active, `sgack.sys` cannot load, and CrossFire PH refuses to start, returning `crossfire init failed`.
+
+This wrapper detects Vanguard upfront, warns the user, and prevents an unnecessary launch attempt.
 
 ## How it works
 
