@@ -57,3 +57,7 @@ Requires a Windows toolchain (`x86_64-pc-windows-msvc`).
 ## License
 
 MIT
+
+## Disclaimer
+
+CrossFire PH is a trademark of **Smilegate Entertainment**. This project is an unofficial utility and is not affiliated with, endorsed by, or sponsored by Smilegate or Riot Games. The CrossFire PH logo and icon are used solely for the purpose of identifying the game being launched. All trademarks and registered trademarks are the property of their respective owners.
