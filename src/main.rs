@@ -1,28 +1,21 @@
 use std::mem;
-use std::ptr;
-use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
 };
-use windows::core::Error;
 
 struct SnapshotHandle(HANDLE);
 
 impl Drop for SnapshotHandle {
     fn drop(&mut self) {
         unsafe {
-            CloseHandle(self.0);
+            let _ = CloseHandle(self.0);
         }
     }
 }
 
 fn find_vanguard_processes() -> Result<Vec<u32>, Box<dyn std::error::Error>> {
-    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-
-    if snapshot == INVALID_HANDLE_VALUE {
-        return Err(Box::new(Error::from_win32()));
-    }
-
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }?;
     let _guard = SnapshotHandle(snapshot);
 
     let mut entry: PROCESSENTRY32W = unsafe { mem::zeroed() };
@@ -30,7 +23,7 @@ fn find_vanguard_processes() -> Result<Vec<u32>, Box<dyn std::error::Error>> {
 
     let mut pids = Vec::new();
 
-    if unsafe { Process32FirstW(snapshot, &mut entry).as_bool() } {
+    if unsafe { Process32FirstW(snapshot, &mut entry).is_ok() } {
         let exe_name = String::from_utf16_lossy(&entry.szExeFile);
         let exe_name = exe_name.trim_end_matches('\0');
 
@@ -38,7 +31,7 @@ fn find_vanguard_processes() -> Result<Vec<u32>, Box<dyn std::error::Error>> {
             pids.push(entry.th32ProcessID);
         }
 
-        while unsafe { Process32NextW(snapshot, &mut entry).as_bool() } {
+        while unsafe { Process32NextW(snapshot, &mut entry).is_ok() } {
             let exe_name = String::from_utf16_lossy(&entry.szExeFile);
             let exe_name = exe_name.trim_end_matches('\0');
 
