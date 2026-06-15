@@ -283,12 +283,18 @@ fn launch_game(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Show a MessageBoxW error dialog with the given message.
+/// Show a MessageBoxW error dialog. Prepends a management-contact message
+/// before the caller-supplied error text.
 fn show_error_dialog(msg: &str) {
+    let full = format!(
+        "Please contact management and tell them about this error. \
+         If possible, you may send this as screenshot accordingly.\n\n{}",
+        msg
+    );
     unsafe {
         let _ = MessageBoxW(
             None,
-            PCWSTR(wstring(msg).as_ptr()),
+            PCWSTR(wstring(&full).as_ptr()),
             PCWSTR(wstring("CrossFire PH Launcher - Error").as_ptr()),
             MB_OK | MB_ICONWARNING,
         );
