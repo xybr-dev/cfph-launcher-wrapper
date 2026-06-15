@@ -24,15 +24,9 @@ This wrapper detects Vanguard upfront, warns the user, and prevents an unnecessa
 
 *`patcher_cf2.exe` returns `crossfire init failed` when Vanguard is active.*
 
----
 
-![Vanguard warning dialog](https://github.com/user-attachments/assets/31ad209f-1649-4dc3-9da2-f087f144cfc7)
 
-*Warning dialog shown when Vanguard is detected.*
-
----
-
-![Step-by-step instructions](https://github.com/user-attachments/assets/d1a603e6-a1b1-454b-b0d6-4d1f9c29cb12)
+<img width="1144" height="592" alt="image" src="https://github.com/user-attachments/assets/fe368f1f-9bd5-42ea-873d-056d0fa747e5" />
 
 *GUI guide for manually exiting Vanguard via the system tray.*
 
